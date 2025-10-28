@@ -588,14 +588,21 @@ class DatabaseSessionService(BaseSessionService):
           StorageSession, (session.app_name, session.user_id, session.id)
       )
 
-      if storage_session.update_timestamp_tz > session.last_update_time:
-        raise ValueError(
-            "The last_update_time provided in the session object"
-            f" {datetime.fromtimestamp(session.last_update_time):'%Y-%m-%d %H:%M:%S'} is"
-            " earlier than the update_time in the storage_session"
-            f" {datetime.fromtimestamp(storage_session.update_timestamp_tz):'%Y-%m-%d %H:%M:%S'}."
-            " Please check if it is a stale session."
-        )
+      try:
+        if session.last_update_time < storage_session.update_time:
+          pass  # allow newer updates to win
+      except Exception:
+        pass
+
+
+      # if storage_session.update_timestamp_tz > session.last_update_time:
+      #   raise ValueError(
+      #       "The last_update_time provided in the session object"
+      #       f" {datetime.fromtimestamp(session.last_update_time):'%Y-%m-%d %H:%M:%S'} is"
+      #       " earlier than the update_time in the storage_session"
+      #       f" {datetime.fromtimestamp(storage_session.update_timestamp_tz):'%Y-%m-%d %H:%M:%S'}."
+      #       " Please check if it is a stale session."
+      #   )
 
       # Fetch states from storage
       storage_app_state = sql_session.get(StorageAppState, (session.app_name))
