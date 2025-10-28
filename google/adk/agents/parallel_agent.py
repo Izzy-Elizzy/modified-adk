@@ -175,25 +175,21 @@ class ParallelAgent(BaseAgent):
   async def _run_async_impl(
       self, ctx: InvocationContext
   ) -> AsyncGenerator[Event, None]:
-    agent_runs = [
-        sub_agent.run_async(
-            _create_branch_ctx_for_sub_agent(self, sub_agent, ctx)
-        )
-        for sub_agent in self.sub_agents
-    ]
-    try:
-      # TODO remove if once Python <3.11 is no longer supported.
+      agent_runs = [
+          sub_agent.run_async(
+              _create_branch_ctx_for_sub_agent(self, sub_agent, ctx)
+          )
+          for sub_agent in self.sub_agents
+      ]
+      
+      # Use merging generator directly; do NOT aclose() sub-agents manually
       if sys.version_info >= (3, 11):
-        async with Aclosing(_merge_agent_run(agent_runs)) as agen:
-          async for event in agen:
-            yield event
+          async for event in _merge_agent_run(agent_runs):
+              yield event
       else:
-        async with Aclosing(_merge_agent_run_pre_3_11(agent_runs)) as agen:
-          async for event in agen:
-            yield event
-    finally:
-      for sub_agent_run in agent_runs:
-        await sub_agent_run.aclose()
+          async for event in _merge_agent_run_pre_3_11(agent_runs):
+              yield event
+    
 
   @override
   async def _run_live_impl(
