@@ -1079,23 +1079,53 @@ class AdkWebServer:
 
     @app.post("/run", response_model_exclude_none=True)
     async def run_agent(req: RunAgentRequest) -> list[Event]:
-      session = await self.session_service.get_session(
-          app_name=req.app_name, user_id=req.user_id, session_id=req.session_id
-      )
-      if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-      runner = await self.get_runner_async(req.app_name)
-      async with Aclosing(
-          runner.run_async(
-              user_id=req.user_id,
-              session_id=req.session_id,
-              new_message=req.new_message,
-          )
-      ) as agen:
-        events = [event async for event in agen]
-      logger.info("Generated %s events in agent run", len(events))
-      logger.debug("Events generated: %s", events)
-      return events
+        # Retrieve the session
+        session = await self.session_service.get_session(
+            app_name=req.app_name,
+            user_id=req.user_id,
+            session_id=req.session_id,
+        )
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Get runner for this app
+        runner = await self.get_runner_async(req.app_name)
+
+        # Initialize event list
+        events: list[Event] = []
+
+        # Run agent safely, ensuring generator closure
+        agen = runner.run_async(
+            user_id=req.user_id,
+            session_id=req.session_id,
+            new_message=req.new_message,
+        )
+
+        try:
+            async with Aclosing(agen):
+                async for event in agen:
+                    events.append(event)
+        except RuntimeError as e:
+            # Suppress benign generator errors
+            if "aclose(): asynchronous generator is already running" in str(e):
+                logger.warning("Ignoring async generator close race condition: %s", e)
+            else:
+                raise
+        finally:
+            # Ensure generator cleanup
+            try:
+                await agen.aclose()
+            except RuntimeError as e:
+                if "aclose(): asynchronous generator is already running" not in str(e):
+                    raise
+            await asyncio.sleep(0)  # yield control for cleanup
+
+        # Log results
+        logger.info("Generated %s events in agent run", len(events))
+        logger.debug("Events generated: %s", events)
+
+        return events
+
 
     @app.post("/run_sse")
     async def run_agent_sse(req: RunAgentRequest) -> StreamingResponse:
