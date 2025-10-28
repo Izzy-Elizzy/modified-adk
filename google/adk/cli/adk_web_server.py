@@ -1087,43 +1087,25 @@ class AdkWebServer:
         )
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-
-        # Get runner for this app
+    
+        # Get the runner for the app
         runner = await self.get_runner_async(req.app_name)
-
-        # Initialize event list
+    
         events: list[Event] = []
-
-        # Run agent safely, ensuring generator closure
+    
+        # Run the async generator safely
         agen = runner.run_async(
             user_id=req.user_id,
             session_id=req.session_id,
             new_message=req.new_message,
         )
-
-        try:
-            async with Aclosing(agen):
-                async for event in agen:
-                    events.append(event)
-        except RuntimeError as e:
-            # Suppress benign generator errors
-            if "aclose(): asynchronous generator is already running" in str(e):
-                logger.warning("Ignoring async generator close race condition: %s", e)
-            else:
-                raise
-        finally:
-            # Ensure generator cleanup
-            try:
-                await agen.aclose()
-            except RuntimeError as e:
-                if "aclose(): asynchronous generator is already running" not in str(e):
-                    raise
-            await asyncio.sleep(0)  # yield control for cleanup
-
-        # Log results
+        async with Aclosing(agen):
+            async for event in agen:
+                events.append(event)
+    
         logger.info("Generated %s events in agent run", len(events))
         logger.debug("Events generated: %s", events)
-
+    
         return events
 
 
