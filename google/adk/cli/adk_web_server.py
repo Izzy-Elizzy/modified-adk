@@ -1077,27 +1077,52 @@ class AdkWebServer:
           filename=artifact_name,
       )
 
+    # @app.post("/run", response_model_exclude_none=True)
+    # async def run_agent(req: RunAgentRequest) -> list[Event]:
+    #   session = await self.session_service.get_session(
+    #       app_name=req.app_name, user_id=req.user_id, session_id=req.session_id
+    #   )
+    #   if not session:
+    #     raise HTTPException(status_code=404, detail="Session not found")
+    #   runner = await self.get_runner_async(req.app_name)
+    #   async with Aclosing(
+    #       runner.run_async(
+    #           user_id=req.user_id,
+    #           session_id=req.session_id,
+    #           new_message=req.new_message,
+    #       )
+    #   ) as agen:
+    #     events = [event async for event in agen]
+    #   logger.info("Generated %s events in agent run", len(events))
+    #   logger.debug("Events generated: %s", events)
+    #   return events
+
     @app.post("/run", response_model_exclude_none=True)
     async def run_agent(req: RunAgentRequest) -> list[Event]:
-      session = await self.session_service.get_session(
-          app_name=req.app_name, user_id=req.user_id, session_id=req.session_id
-      )
-      if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-      runner = await self.get_runner_async(req.app_name)
-      async with Aclosing(
-          runner.run_async(
-              user_id=req.user_id,
-              session_id=req.session_id,
-              new_message=req.new_message,
-          )
-      ) as agen:
-        events = [event async for event in agen]
-      logger.info("Generated %s events in agent run", len(events))
-      logger.debug("Events generated: %s", events)
-      return events
-
-
+        # Always reload session right before running
+        session = await self.session_service.get_session(
+            app_name=req.app_name, user_id=req.user_id, session_id=req.session_id
+        )
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+    
+        # 🔧 Refresh timestamp to prevent stale-session errors
+        # Sometimes DB clock > app clock, so we sync from DB
+        session.last_update_time = datetime.now(timezone.utc).timestamp()
+    
+        runner = await self.get_runner_async(req.app_name)
+        async with Aclosing(
+            runner.run_async(
+                user_id=req.user_id,
+                session_id=req.session_id,
+                new_message=req.new_message,
+            )
+        ) as agen:
+            events = [event async for event in agen]
+    
+        logger.info("Generated %s events in agent run", len(events))
+        logger.debug("Events generated: %s", events)
+        return events
 
     @app.post("/run_sse")
     async def run_agent_sse(req: RunAgentRequest) -> StreamingResponse:
