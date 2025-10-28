@@ -1079,7 +1079,7 @@ class AdkWebServer:
 
     @app.post("/run", response_model_exclude_none=True)
     async def run_agent(req: RunAgentRequest) -> list[Event]:
-        # Retrieve the session
+        # Fetch the session
         session = await self.session_service.get_session(
             app_name=req.app_name,
             user_id=req.user_id,
@@ -1088,25 +1088,26 @@ class AdkWebServer:
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
     
-        # Get the runner for the app
+        # Get the runner
         runner = await self.get_runner_async(req.app_name)
     
-        events: list[Event] = []
-    
-        # Run the async generator safely
+        # Run the agent without wrapping in Aclosing to avoid async generator race
         agen = runner.run_async(
             user_id=req.user_id,
             session_id=req.session_id,
             new_message=req.new_message,
         )
-        async with Aclosing(agen):
-            async for event in agen:
-                events.append(event)
+    
+        # Collect events
+        events: list[Event] = []
+        async for event in agen:
+            events.append(event)
     
         logger.info("Generated %s events in agent run", len(events))
         logger.debug("Events generated: %s", events)
     
         return events
+
 
 
     @app.post("/run_sse")
